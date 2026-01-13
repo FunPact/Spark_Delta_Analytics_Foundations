@@ -1,0 +1,138 @@
+# Installing the Kaggle Dependencies
+!pip install kaggle
+
+# Configuring Kaggle Credentials
+import os
+
+os.environ["KAGGLE_USERNAME"] = "YOUR USERNAME"
+os.environ["KAGGLE_KEY"] = "YOUR API KEY"
+
+print("Kaggle credentials configured!")
+
+# Creating Database Schema
+spark.sql("""
+CREATE SCHEMA IF NOT EXISTS workspace.ecommerce
+""")
+
+# Creating Volume for Data Storage
+spark.sql("""
+CREATE VOLUME IF NOT EXISTS workspace.ecommerce.ecommerce_data
+""")
+
+# Downloading the Dataset from Kaggle
+%sh
+cd /Volumes/workspace/ecommerce/ecommerce_data
+kaggle datasets download -d mkechinov/ecommerce-behavior-data-from-multi-category-store
+
+# Extracting the Downloaded Dataset
+%sh
+cd /Volumes/workspace/ecommerce/ecommerce_data
+unzip -o ecommerce-behavior-data-from-multi-category-store.zip
+ls -lh
+
+# Removing the ZIPs 
+**(Keeping the CSVs)**
+%sh
+cd /Volumes/workspace/ecommerce/ecommerce_data
+rm -f ecommerce-behavior-data-from-multi-category-store.zip
+ls -lh
+
+# Restarting the Python Environment
+%restart_python
+
+# Loading the November 2019 Data
+df_n = (
+    spark.read
+    .option("header", "true")
+    .option("inferSchema", "true")
+    .csv("/Volumes/workspace/ecommerce/ecommerce_data/2019-Nov.csv")
+)
+
+df_n.head()
+
+# Loading the October 2019 Data
+df_o = (
+    spark.read
+    .option("header", "true")
+    .option("inferSchema", "true")
+    .csv("/Volumes/workspace/ecommerce/ecommerce_data/2019-Oct.csv")
+)
+
+df_o.head()
+
+
+# Day-3 with IDC Databricks AI Challenge
+
+### Importing Functions
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+
+### Top 5 Products by Revenue 
+events_n = df_n
+
+revenue = events_n.filter(F.col("event_type") == "purchase") \
+    .groupBy("product_id") \
+    .agg(F.sum("price").alias("revenue")) \
+    .orderBy(F.desc("revenue")).limit(5)
+
+display(revenue)
+
+### Running Total per User
+window = (
+    Window.partitionBy("user_id")
+          .orderBy("event_time")
+          .rowsBetween(Window.unboundedPreceding, Window.currentRow)
+)
+
+result = (
+    events_n
+    .withColumn("cumulative_events", F.sum(F.lit(1)).over(window))
+    .orderBy("user_id", "event_time")
+)
+
+display(result)
+
+### Conversion Rate by Category
+# Minimal fix: workaround for unsupported 'pivot' in PySpark Connect
+from pyspark.sql import functions as F
+
+# Aggregate counts for each event_type per category_code
+gb = events_n.groupBy("category_code", "event_type").count()
+
+# Aggregate to get 'view' and 'purchase' counts per category_code
+views = gb.filter(F.col("event_type") == "view").select("category_code", F.col("count").alias("view"))
+purchases = gb.filter(F.col("event_type") == "purchase").select("category_code", F.col("count").alias("purchase"))
+
+# Join views and purchases
+conversion = views.join(purchases, on="category_code", how="left")
+
+# Calculate conversion rate
+conversion = conversion.withColumn("conversion_rate", F.col("purchase") / F.col("view") * 100)
+conversion.show()
+
+### Converting to Delta
+events_n.write.format("delta").mode("overwrite").save("/Volumes/workspace/ecommerce/ecommerce_data/events_delta")
+
+###  Creating Managed Table
+events_n.write.format("delta").saveAsTable("events_table")
+
+### SQL Approach
+spark.sql("""
+    CREATE TABLE events_delta
+    USING DELTA
+    AS SELECT * FROM events_table
+""")
+
+display(spark.table("events_delta"))
+
+
+# Day-4 with IDC Databricks AI Challenge
+
+
+
+
+
+
+
+
+
