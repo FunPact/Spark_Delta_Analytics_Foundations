@@ -110,6 +110,9 @@ conversion = views.join(purchases, on="category_code", how="left")
 conversion = conversion.withColumn("conversion_rate", F.col("purchase") / F.col("view") * 100)
 conversion.show()
 
+
+# Day-4 with IDC Databricks AI Challenge
+
 ### Converting to Delta
 events_n.write.format("delta").mode("overwrite").save("/Volumes/workspace/ecommerce/ecommerce_data/events_delta")
 
@@ -124,12 +127,6 @@ spark.sql("""
 """)
 
 display(spark.table("events_delta"))
-
-
-# Day-4 with IDC Databricks AI Challenge
-
-
-
 
 
 
